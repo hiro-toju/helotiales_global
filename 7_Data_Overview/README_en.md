@@ -36,7 +36,10 @@ python3 data_overview.py \
   World maps of sampling locations.
 
 - `outputs/figures/*_continent_proportions.pdf`  
-  Continent-composition plots.
+  Continent-composition plots. Continent order and colors are fixed across all figures, and continent names and percentages are shown directly inside or around the plots.
+
+- `outputs/continent_color_key.tsv`  
+  Fixed continent display order and colors.
 
 - `outputs/run_configuration.tsv`, `runtime_versions.tsv`, `run_timing.tsv`, `workflow.log`  
   Reproducibility records for command settings, runtime versions, timing, and logs.

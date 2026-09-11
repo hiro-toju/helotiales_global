@@ -52,6 +52,36 @@ import pandas as pd
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parent
 UNKNOWN_TOKENS = {"", "NA", "N/A", "NAN", "NONE", "NULL", "UNKNOWN", "<NA>"}
+CONTINENT_ORDER = [
+    "Asia",
+    "Europe",
+    "North America",
+    "South America",
+    "Africa",
+    "Australia",
+    "Antarctica",
+    "Pacific Ocean",
+    "Atlantic Ocean",
+    "Arctic Ocean",
+    "Indian Ocean",
+    "Unknown",
+    "Other",
+]
+CONTINENT_COLORS = {
+    "Asia": "#7F3C8D",
+    "Europe": "#11A579",
+    "North America": "#3969AC",
+    "South America": "#F2B701",
+    "Africa": "#E73F74",
+    "Australia": "#80BA5A",
+    "Antarctica": "#E68310",
+    "Pacific Ocean": "#008695",
+    "Atlantic Ocean": "#CF1C90",
+    "Arctic Ocean": "#F97B72",
+    "Indian Ocean": "#A5AA99",
+    "Unknown": "#999999",
+    "Other": "#CCCCCC",
+}
 
 
 DATASETS = [
@@ -370,7 +400,13 @@ def plot_map(store: dict[str, object], dataset: dict[str, str], output: Path, ge
 
 
 def continent_table(store: dict[str, object], key: str, label: str, unit_label: str) -> pd.DataFrame:
-    counts = pd.Series(dict(store["continent_counts"]), dtype="int64").sort_values(ascending=False)
+    counts = pd.Series(dict(store["continent_counts"]), dtype="int64")
+    unknown_continents = [continent for continent in counts.index if continent not in CONTINENT_ORDER]
+    if unknown_continents:
+        counts.loc["Other"] = counts.get("Other", 0) + counts.loc[unknown_continents].sum()
+        counts = counts.drop(index=unknown_continents)
+    ordered = [continent for continent in CONTINENT_ORDER if continent in counts.index]
+    counts = counts.loc[ordered]
     total = int(counts.sum())
     return pd.DataFrame({
         "dataset": key,
@@ -384,29 +420,92 @@ def continent_table(store: dict[str, object], key: str, label: str, unit_label: 
 
 def plot_continent_donut(table: pd.DataFrame, dataset: dict[str, str], output: Path, font_scale: float) -> None:
     data = table.loc[table["dataset"].eq(dataset["key"])].copy()
-    data = data.sort_values("count", ascending=False)
-    colors = ["#7F3C8D", "#11A579", "#3969AC", "#F2B701", "#E73F74", "#80BA5A", "#E68310", "#808080"]
+    order = {continent: i for i, continent in enumerate(CONTINENT_ORDER)}
+    data["continent_order"] = data["continent"].map(order).fillna(len(CONTINENT_ORDER)).astype(int)
+    data = data.sort_values("continent_order")
+    colors = [CONTINENT_COLORS.get(continent, CONTINENT_COLORS["Other"]) for continent in data["continent"]]
     labels = [f"{row.continent}\n{row.proportion:.1%}" for row in data.itertuples()]
-    fig, ax = plt.subplots(figsize=(6.2, 5.4))
+    fig, ax = plt.subplots(figsize=(7.1, 6.4))
     wedges, _ = ax.pie(
         data["count"],
         labels=None,
         startangle=90,
         counterclock=False,
-        colors=colors[: len(data)],
+        colors=colors,
         wedgeprops={"width": 0.38, "edgecolor": "white", "linewidth": 0.8},
     )
-    ax.legend(
-        wedges,
-        labels,
-        title="Continent",
-        loc="center left",
-        bbox_to_anchor=(1.00, 0.5),
-        frameon=False,
-    )
+    outside_labels: list[dict[str, object]] = []
+    for wedge, label, proportion in zip(wedges, labels, data["proportion"]):
+        angle = np.deg2rad((wedge.theta1 + wedge.theta2) / 2)
+        if proportion >= 0.045:
+            radius = 0.78
+            ax.text(
+                radius * np.cos(angle),
+                radius * np.sin(angle),
+                label,
+                ha="center",
+                va="center",
+                fontsize=7.0,
+                color="#111111",
+            )
+        else:
+            side = 1 if np.cos(angle) >= 0 else -1
+            outside_labels.append({
+                "label": label,
+                "angle": angle,
+                "side": side,
+                "target": (0.93 * np.cos(angle), 0.93 * np.sin(angle)),
+            })
+
+    placed_outside = []
+    for side in (-1, 1):
+        items = sorted(
+            [item for item in outside_labels if item["side"] == side],
+            key=lambda item: float(item["angle"]),
+        )
+        previous_angle = None
+        radial_level = 0
+        for item in items:
+            angle = float(item["angle"])
+            if previous_angle is None or angle - previous_angle > 0.18:
+                radial_level = 0
+            else:
+                radial_level += 1
+            item["label_radius"] = 1.10 + 0.105 * radial_level
+            placed_outside.append(item)
+            previous_angle = angle
+
+    for item in placed_outside:
+        side = int(item["side"])
+        angle = float(item["angle"])
+        label_radius = float(item["label_radius"])
+        line_end_radius = max(1.02, label_radius - 0.055)
+        x = label_radius * np.cos(angle)
+        y = label_radius * np.sin(angle)
+        target_x, target_y = item["target"]
+        ax.plot(
+            [target_x, line_end_radius * np.cos(angle)],
+            [target_y, line_end_radius * np.sin(angle)],
+            color="#666666",
+            lw=0.36,
+            solid_capstyle="round",
+            zorder=3,
+        )
+        ax.text(
+            x,
+            y,
+            str(item["label"]),
+            ha="left" if side > 0 else "right",
+            va="center",
+            fontsize=4.5,
+            linespacing=0.92,
+            zorder=4,
+        )
     ax.text(0, 0, f"n = {int(data['count'].sum()):,}", ha="center", va="center", fontsize=10)
-    ax.set_title(dataset["label"])
+    ax.set_title(dataset["label"], pad=20)
     ax.set(aspect="equal")
+    ax.set_xlim(-1.86, 1.86)
+    ax.set_ylim(-1.48, 2.18)
     apply_font_scale(fig, font_scale)
     fig.tight_layout()
     fig.savefig(output, format="pdf", bbox_inches="tight")
@@ -509,6 +608,14 @@ def main() -> int:
 
     pd.DataFrame(summary_rows).to_csv(args.output_dir / "data_overview_summary.tsv", sep="\t", index=False)
     pd.concat(continent_tables, ignore_index=True).to_csv(args.output_dir / "continent_breakdown.tsv", sep="\t", index=False)
+    pd.DataFrame([
+        {
+            "continent": continent,
+            "display_order": i,
+            "color": CONTINENT_COLORS[continent],
+        }
+        for i, continent in enumerate(CONTINENT_ORDER, start=1)
+    ]).to_csv(args.output_dir / "continent_color_key.tsv", sep="\t", index=False)
     pd.DataFrame([
         {"setting": "command", "value": command},
         {"setting": "globalfungi_results", "value": rel(args.globalfungi_results)},

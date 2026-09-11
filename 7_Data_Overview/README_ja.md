@@ -36,7 +36,10 @@ python3 data_overview.py \
   各データ定義のサンプリング地点マップ。
 
 - `outputs/figures/*_continent_proportions.pdf`  
-  各データ定義の continent 構成比。
+  各データ定義の continent 構成比。continentの表示順と色は全Figureで固定され、continent名と割合は図中に直接表示されます。
+
+- `outputs/continent_color_key.tsv`  
+  continentの固定表示順と色。
 
 - `outputs/run_configuration.tsv`, `runtime_versions.tsv`, `run_timing.tsv`, `workflow.log`  
   再現性確認用の設定・バージョン・計算時間・ログ。
