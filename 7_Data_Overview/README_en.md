@@ -2,19 +2,23 @@
 
 This auxiliary workflow creates overview figures for the Helotiales occurrence data.
 
-It outputs world maps of sampling locations and continent-composition PDF plots for three nested data definitions:
+It outputs world maps of sampling locations and continent-composition PDF plots for four nested data definitions:
 
-1. All occurrences containing Helotiales.
-2. All Helotiales occurrences from root samples, i.e. `sample_type == root`.
-3. Root unique occurrences with reliable host-plant information.
+1. All GlobalFungi occurrences.
+2. All occurrences containing Helotiales.
+3. All Helotiales occurrences from root samples, i.e. `sample_type == root`.
+4. Root unique occurrences with reliable host-plant information.
 
-By default, the third dataset uses the cleaned table from `0_Data_Property`, in which 198 unique occurrences flagged during previous preprocessing are removed. If that file is not available, the script falls back to `1_GlobalFungi/results_helotiales/helotiales_root_occurrences_with_hosts.tsv`.
+For the first dataset, all GlobalFungi occurrences are counted as positive cells in the sample-by-SH abundance matrix in `GlobalFungi_5_SH_abundance_ITS1_ITS2.txt.gz`. The map shows sample coordinates for samples in which at least one SH was detected.
+
+By default, the fourth dataset uses the cleaned table from `0_Data_Property`, in which 198 unique occurrences flagged during previous preprocessing are removed. If that file is not available, the script falls back to `1_GlobalFungi/results_helotiales/helotiales_root_occurrences_with_hosts.tsv`.
 
 ## Basic command
 
 ```bash
 cd "[CURRENT DIRECTORY]"
 python3 data_overview.py \
+  --globalfungi-data ../1_GlobalFungi/data \
   --globalfungi-results ../1_GlobalFungi/results_helotiales \
   --output-dir outputs \
   --figure-font-scale 1.5
@@ -36,4 +40,3 @@ python3 data_overview.py \
 
 - `outputs/run_configuration.tsv`, `runtime_versions.tsv`, `run_timing.tsv`, `workflow.log`  
   Reproducibility records for command settings, runtime versions, timing, and logs.
-

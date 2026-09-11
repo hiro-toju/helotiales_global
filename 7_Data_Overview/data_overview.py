@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Create overview maps and continent-composition plots for Helotiales data.
+"""Create overview maps and continent-composition plots for GlobalFungi/Helotiales data.
 
-The script summarizes three nested data definitions:
+The script summarizes four nested data definitions:
 
-1. All Helotiales occurrence records.
-2. All Helotiales occurrence records from root samples.
-3. Reliable root-host unique occurrences after data-property cleaning.
+1. All GlobalFungi occurrence records.
+2. All Helotiales occurrence records.
+3. All Helotiales occurrence records from root samples.
+4. Reliable root-host unique occurrences after data-property cleaning.
 
 Large GlobalFungi-derived tables are read in chunks so that the overview can be
 regenerated without loading the full occurrence table into memory.
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import hashlib
 import json
 import os
@@ -54,6 +56,11 @@ UNKNOWN_TOKENS = {"", "NA", "N/A", "NAN", "NONE", "NULL", "UNKNOWN", "<NA>"}
 
 DATASETS = [
     {
+        "key": "all_globalfungi_occurrences",
+        "label": "All GlobalFungi occurrences",
+        "unit_label": "occurrences",
+    },
+    {
         "key": "all_helotiales_occurrences",
         "label": "All Helotiales occurrences",
         "unit_label": "occurrences",
@@ -80,6 +87,30 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=PROJECT_DIR / "1_GlobalFungi" / "results_helotiales",
         help="Directory containing 1_GlobalFungi outputs.",
+    )
+    parser.add_argument(
+        "--globalfungi-data",
+        type=Path,
+        default=PROJECT_DIR / "1_GlobalFungi" / "data",
+        help="Directory containing raw GlobalFungi input files.",
+    )
+    parser.add_argument(
+        "--globalfungi-abundance",
+        type=Path,
+        default=None,
+        help=(
+            "GlobalFungi SH abundance matrix. Default: "
+            "<globalfungi-data>/GlobalFungi_5_SH_abundance_ITS1_ITS2.txt.gz."
+        ),
+    )
+    parser.add_argument(
+        "--globalfungi-metadata",
+        type=Path,
+        default=None,
+        help=(
+            "GlobalFungi sample metadata table. Default: "
+            "<globalfungi-data>/GlobalFungi_5_sample_metadata.txt.gz."
+        ),
     )
     parser.add_argument(
         "--all-occurrences",
@@ -173,6 +204,61 @@ def new_store() -> dict[str, object]:
         "coordinate_pairs": set(),
         "continent_counts": Counter(),
     }
+
+
+def read_globalfungi_metadata(path: Path) -> pd.DataFrame:
+    metadata = pd.read_csv(
+        path,
+        sep="\t",
+        usecols=["sample_ID", "latitude", "longitude", "continent"],
+        dtype=str,
+        encoding="utf-8-sig",
+    )
+    metadata = metadata.drop_duplicates("sample_ID", keep="first").set_index("sample_ID")
+    metadata["latitude"] = pd.to_numeric(metadata["latitude"], errors="coerce")
+    metadata["longitude"] = pd.to_numeric(metadata["longitude"], errors="coerce")
+    metadata["continent"] = metadata["continent"].map(normalize_text)
+    return metadata
+
+
+def read_globalfungi_all_occurrences(abundance_path: Path, metadata_path: Path) -> dict[str, object]:
+    store = new_store()
+    metadata = read_globalfungi_metadata(metadata_path)
+    sample_counts: dict[str, int] = {}
+    opener = gzip.open if abundance_path.suffix == ".gz" else open
+    with opener(abundance_path, "rb") as handle:
+        header = handle.readline()
+        if not header.startswith(b"sample_ID\t"):
+            raise ValueError(f"Unexpected GlobalFungi abundance header in {abundance_path}")
+        n_sh_columns = header.count(b"\t")
+        for raw in handle:
+            tab = raw.find(b"\t")
+            if tab < 1:
+                continue
+            sample_id = raw[:tab].decode("utf-8", "replace")
+            row_data = raw[tab:].rstrip(b"\r\n") + b"\t"
+            n_positive = n_sh_columns - row_data.count(b"\t0")
+            if n_positive > 0:
+                sample_counts[sample_id] = n_positive
+    if not sample_counts:
+        return store
+
+    counts = pd.Series(sample_counts, name="occurrence_count", dtype="int64")
+    merged = metadata.join(counts, how="inner")
+    store["n_records"] = int(merged["occurrence_count"].sum())
+    valid = merged.loc[
+        merged["latitude"].between(-90, 90) & merged["longitude"].between(-180, 180)
+    ].copy()
+    store["n_records_with_coordinates"] = int(valid["occurrence_count"].sum())
+    if not valid.empty:
+        store["coordinate_pairs"].update(
+            map(tuple, valid[["latitude", "longitude"]].drop_duplicates().to_numpy())
+        )
+    for continent, total in merged.groupby("continent")["occurrence_count"].sum().items():
+        store["continent_counts"][continent] += int(total)
+    store["n_samples_with_occurrences"] = int(len(merged))
+    store["n_samples_with_coordinates"] = int(len(valid))
+    return store
 
 
 def read_all_and_root_occurrences(path: Path, chunksize: int) -> tuple[dict[str, object], dict[str, object]]:
@@ -347,6 +433,15 @@ def main() -> int:
     started_at = datetime.now(timezone.utc).astimezone()
     args = parse_args()
     args.globalfungi_results = args.globalfungi_results.resolve()
+    args.globalfungi_data = args.globalfungi_data.resolve()
+    globalfungi_abundance = (
+        args.globalfungi_abundance
+        or args.globalfungi_data / "GlobalFungi_5_SH_abundance_ITS1_ITS2.txt.gz"
+    ).resolve()
+    globalfungi_metadata = (
+        args.globalfungi_metadata
+        or args.globalfungi_data / "GlobalFungi_5_sample_metadata.txt.gz"
+    ).resolve()
     all_path = (args.all_occurrences or args.globalfungi_results / "helotiales_occurrences_merged.tsv").resolve()
     default_cleaned = PROJECT_DIR / "0_Data_Property" / "outputs" / "sh150_family30_10000_lat20_minblock100" / "helotiales_root_occurrences_with_hosts_cleaned_for_data_property.tsv"
     reliable_path = (args.reliable_host_occurrences or (default_cleaned if default_cleaned.is_file() else args.globalfungi_results / "helotiales_root_occurrences_with_hosts.tsv")).resolve()
@@ -359,13 +454,21 @@ def main() -> int:
     command = shlex.join([sys.executable, *sys.argv])
     log.write_text(f"Started: {started_at.isoformat()}\nCommand: {command}\n", encoding="utf-8")
 
-    for path, label in [(all_path, "all occurrences"), (reliable_path, "reliable host occurrences"), (args.world_geojson, "world GeoJSON")]:
+    for path, label in [
+        (globalfungi_abundance, "GlobalFungi abundance matrix"),
+        (globalfungi_metadata, "GlobalFungi sample metadata"),
+        (all_path, "all Helotiales occurrences"),
+        (reliable_path, "reliable host occurrences"),
+        (args.world_geojson, "world GeoJSON"),
+    ]:
         if not path.is_file():
             raise FileNotFoundError(f"Missing {label}: {path}")
 
+    globalfungi_store = read_globalfungi_all_occurrences(globalfungi_abundance, globalfungi_metadata)
     all_store, root_store = read_all_and_root_occurrences(all_path, args.chunksize)
     reliable_store = read_reliable_host_occurrences(reliable_path)
     stores = {
+        "all_globalfungi_occurrences": globalfungi_store,
         "all_helotiales_occurrences": all_store,
         "root_helotiales_occurrences": root_store,
         "reliable_root_host_unique_occurrences": reliable_store,
@@ -383,6 +486,8 @@ def main() -> int:
             "n_units_with_valid_coordinates": int(store["n_records_with_coordinates"]),
             "n_sampling_locations": len(store["coordinate_pairs"]),
             "n_continents": len([k for k, v in store["continent_counts"].items() if v > 0]),
+            "n_samples_with_occurrences": store.get("n_samples_with_occurrences", ""),
+            "n_samples_with_coordinates": store.get("n_samples_with_coordinates", ""),
         })
         ctab = continent_table(store, dataset["key"], dataset["label"], dataset["unit_label"])
         continent_tables.append(ctab)
@@ -407,6 +512,9 @@ def main() -> int:
     pd.DataFrame([
         {"setting": "command", "value": command},
         {"setting": "globalfungi_results", "value": rel(args.globalfungi_results)},
+        {"setting": "globalfungi_data", "value": rel(args.globalfungi_data)},
+        {"setting": "globalfungi_abundance", "value": rel(globalfungi_abundance)},
+        {"setting": "globalfungi_metadata", "value": rel(globalfungi_metadata)},
         {"setting": "all_occurrences", "value": rel(all_path)},
         {"setting": "reliable_host_occurrences", "value": rel(reliable_path)},
         {"setting": "world_geojson", "value": rel(args.world_geojson)},
