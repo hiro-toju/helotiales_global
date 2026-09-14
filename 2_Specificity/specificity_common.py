@@ -1837,10 +1837,22 @@ def continent_occurrence_label_table(
         occurrences["fungus"].isin(selected.index.astype(str))
         & occurrences["spatial_block"].isin(selected.columns.astype(str))
     ].copy()
-    work = work.drop_duplicates(["sampling_unit_id", "fungus", "spatial_block"])
-    occurrence_labels = work[[
-        "sampling_unit_id", "spatial_block", "fungus"
-    ]].copy()
+    sample_columns = [column for column in ("sample_id", "sample_ids") if column in work.columns]
+    if sample_columns:
+        work["_shuffle_sample_ids"] = work[sample_columns].apply(
+            lambda row: combine_sample_id_values(row.values), axis=1
+        )
+    else:
+        work["_shuffle_sample_ids"] = ""
+    occurrence_labels = (
+        work.groupby(
+            ["sampling_unit_id", "spatial_block", "fungus"],
+            sort=False,
+            dropna=False,
+        )
+        .agg(sample_ids=("_shuffle_sample_ids", combine_sample_id_values))
+        .reset_index()
+    )
     occurrence_labels["col_label"] = occurrence_labels["spatial_block"]
     occurrence_labels = occurrence_labels.rename(columns={"fungus": "row_label"})
     row_order = {label: i for i, label in enumerate(selected.index.astype(str), start=1)}
