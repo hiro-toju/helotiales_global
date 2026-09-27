@@ -1,6 +1,6 @@
 # Analysis code for “Global distributions and host plant associations of the ecologically diverse ascomycete order Helotiales”
 
-This repository contains reproducible Python/R analysis workflows associated with the manuscript “Global distributions and host plant associations of the ecologically diverse ascomycete order Helotiales”.
+This repository contains reproducible Python/R analysis workflows associated with the manuscript “Global distributions and plant associations of the ecologically diverse ascomycete order Helotiales”.
 
 The workflows analyze global occurrence records of root-associated Helotiales fungi using GlobalFungi and UNITE database files. They identify Helotiales Species Hypotheses (SHs), curate root-associated occurrence records with host-plant information, define unique occurrences and sampling units, summarize fungal and plant taxonomic composition, quantify host-plant and geographic specificity using sampling-unit label-shuffle randomizations, perform spatial-block and latitude-block randomization analyses, generate distribution maps for abundant SHs, and test phylogenetic signal in host-association specificity using ITS/rRNA sequence alignments and phylogenetic trees.
 
